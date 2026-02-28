@@ -1,12 +1,14 @@
 name: Auto Update Packages
 on:
   schedule:
-    - cron: '0 5 * * *' # Run at 05:00 UTC every day
+    - cron: '0 */3 * * *' # Run every 3 hours
   workflow_dispatch: # Allow manual trigger
 
 jobs:
   update_packages:
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v3
 
@@ -26,3 +28,8 @@ jobs:
             Write-Host "No packages directory found. Nothing to push."
           }
         shell: powershell
+
+      - name: Keep workflow alive
+        uses: gautamkrishnar/keepalive-workflow@v2
+        with:
+          commit_message: "chore: Auto keepalive to prevent 60-day cron deactivation"
