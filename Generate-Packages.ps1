@@ -79,8 +79,15 @@ foreach ($rawurl in $urls) {
         # Find a suitable installer asset based on the regex
         $asset = $release.assets | Where-Object { $_.name -match $assetRegex } | Select-Object -First 1
         
+        # Smart Auto-Detection Fallback: If no generic .exe/.msi/.zip was found and the user didn't specify a strict ?asset= glob
+        if (-not $asset -and (-not $rawurl.Contains("?asset="))) {
+            Write-Host "Generic asset match failed. Attempting smart Windows 64-bit auto-detection..."
+            $fallbackRegex = '.*windows.*(amd64|x64|x86_64).*\.(exe|msi|zip)$'
+            $asset = $release.assets | Where-Object { $_.name -match $fallbackRegex } | Select-Object -First 1
+        }
+        
         if (-not $asset) {
-            Write-Warning "No asset matching '$assetRegex' found in the latest release ($version)."
+            Write-Warning "No suitable Windows asset found in the latest release ($version)."
             continue
         }
 
