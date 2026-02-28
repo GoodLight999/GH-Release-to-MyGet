@@ -185,18 +185,31 @@ Install-ChocolateyZipPackage @packageArgs
 # Advanced Edge Case Handling: Find the main GUI executable to create a shortcut and ignore CLI shims
 `$exes = Get-ChildItem -Path `$installDir -Recurse -Filter "*.exe"
 
-`$mainExe = `$null
+`$guiCandidates = @()
 foreach (`$exe in `$exes) {
     if (`$exe.Name -match "(ctl|cli|server)") {
         # It's a CLI tool or server component - tell Chocolatey NOT to create a path shim for it
         New-Item -ItemType File -Path "`$(`$exe.FullName).ignore" -Force | Out-Null
         Write-Host "Created ignore file for CLI/background tool: `$(`$exe.Name)"
     } else {
-        # If we haven't found a main GUI exe yet, or if this one perfectly matches the repo name, prefer it
-        if (-not `$mainExe -or (`$exe.Name.ToLower() -match '$packageId')) {
-            `$mainExe = `$exe
-        }
+        `$guiCandidates += `$exe
     }
+}
+
+# 1. Sort candidates by length of name ascending (e.g. 'app.exe' is better than 'app-helper.exe')
+`$guiCandidates = `$guiCandidates | Sort-Object { `$_.Name.Length }
+
+`$mainExe = `$null
+# 2. Prefer the shortest executable that contains the package name
+foreach (`$candidate in `$guiCandidates) {
+    if (`$candidate.Name.ToLower() -match '$packageId') {
+        `$mainExe = `$candidate
+        break
+    }
+}
+# 3. If none matched the package name, just pick the shortest executable overall
+if (-not `$mainExe -and `$guiCandidates.Count -gt 0) {
+    `$mainExe = `$guiCandidates[0]
 }
 
 if (`$mainExe) {
