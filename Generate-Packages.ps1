@@ -107,15 +107,15 @@ foreach ($rawurl in $urls) {
             Write-Host "Attempting smart Windows GUI auto-detection (prioritizing x64 over x86, GUI over CLI)..."
             
             # Step 1: Filter out things we definitely don't want (macOS, Linux, signatures, archives like tar.gz)
-            $potentialAssets = $release.assets | Where-Object { 
+            $potentialAssets = @($release.assets | Where-Object { 
                 $_.name -notmatch '(?i)\.(sig|txt|json|asc|apk|tar\.(gz|xz)|AppImage|dmg|rpm|deb|blockmap|yml)$' -and 
                 # If it's a zip, exclude non-Windows architectures. If it's an exe/msi/msix, it's definitively Windows.
                 (($_.name -match '(?i)\.(exe|msi|msixbundle|appx)$') -or ($_.name -notmatch '(?i)(arm|aarch64|linux|macos|apple|darwin)')) -and
                 ($_.name -match '(?i)\.(exe|msi|zip|msixbundle|appx)$')
-            }
+            })
 
             # Step 2: Assign scores to prioritize the best candidate (64-bit Windows GUI Executable)
-            $scoredAssets = $potentialAssets | ForEach-Object {
+            $scoredAssets = @($potentialAssets | ForEach-Object {
                 $score = 0
                 
                 # OS: Definitively Windows
@@ -140,12 +140,12 @@ foreach ($rawurl in $urls) {
                     Score = $score
                     Name = $_.name
                 }
-            }
+            })
             
             # Sort by score descending
-            $sortedAssets = $scoredAssets | Sort-Object -Property Score -Descending
+            $sortedAssets = @($scoredAssets | Sort-Object -Property Score -Descending)
             
-            if ($sortedAssets -and $sortedAssets.Count -gt 0) {
+            if ($sortedAssets.Count -gt 0) {
                 # Optional: Uncomment to debug scoring
                 # foreach ($sa in $sortedAssets) { Write-Host "Candidate: $($sa.Name) (Score: $($sa.Score))" }
                 $asset = $sortedAssets[0].Asset
