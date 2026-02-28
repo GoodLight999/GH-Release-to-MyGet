@@ -3,11 +3,6 @@ on:
   schedule:
     - cron: '0 5 * * *' # Run at 05:00 UTC every day
   workflow_dispatch: # Allow manual trigger
-  push:
-    branches:
-      - main
-    paths:
-      - '*/update.ps1' # Run when update scripts are modified
 
 jobs:
   update_packages:
@@ -15,18 +10,19 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Install Chocolatey-AU
-        run: Install-Module Chocolatey-AU -Force -AcceptLicense
+      - name: Generate and Pack Chocolatey Packages
+        run: .\Generate-Packages.ps1 -TargetUrls "${{ vars.TARGET_URLS }}"
+        shell: powershell
 
-      - name: Run Update Script for my-awesome-app
-        run: ./update.ps1
-        working-directory: ./my-awesome-app
-        # Add more steps here for other applications as you add them
-
-      - name: Pack and Push to MyGet
+      - name: Push to MyGet
         run: |
-          # Loop through all created nupkg files and push them
-          Get-ChildItem -Path ./ -Recurse -Filter "*.nupkg" | ForEach-Object {
-            choco push $_.FullName --source "https://www.myget.org/F/goodlight-desktop-repo/api/v2/package" --api-key ${{ secrets.MYGET_API_KEY }} --force
+          # The packages were created directly inside the auto-generated folders under ./packages
+          if (Test-Path ".\packages") {
+            Get-ChildItem -Path ".\packages" -Recurse -Filter "*.nupkg" | ForEach-Object {
+              Write-Host "Pushing $($_.Name)..."
+              choco push $_.FullName --source "https://www.myget.org/F/goodlight-desktop-repo/api/v2/package" --api-key ${{ secrets.MYGET_API_KEY }} --force
+            }
+          } else {
+            Write-Host "No packages directory found. Nothing to push."
           }
-        # Note: Replace 'my-gui-feed' with your actual MyGet feed name in the URL above.
+        shell: powershell
