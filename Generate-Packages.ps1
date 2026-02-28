@@ -90,17 +90,18 @@ foreach ($rawurl in $urls) {
             Write-Warning "Could not find a valid semantic version from tag: $($release.tag_name)."
             continue
         }
-
+        # Find a suitable installer asset based on the regex
+        $asset = $release.assets | Where-Object { $_.name -match $assetRegex } | Select-Object -First 1
+        
         # Smart Auto-Detection Fallback: If no generic .exe/.msi/.zip was found and the user didn't specify a strict ?asset= glob
         if (-not $asset -and (-not $rawurl.Contains("?asset="))) {
             Write-Host "Generic asset match failed. Attempting smart Windows 64-bit GUI auto-detection..."
             
             # Step 1: Filter out things we definitely don't want (like .sig, .txt, linux, macos, arm, 386)
             $potentialAssets = $release.assets | Where-Object { 
-                $_.name -notmatch '\.(sig|txt|json|asc|apk|tar\.(gz|xz))$' -and 
-                $_.name -match '(windows|w64|win64)' -and
-                $_.name -match '(amd64|x64|x86_64)' -and
-                $_.name -notmatch '(arm|386|i686)'
+                $_.name -notmatch '\.(sig|txt|json|asc|apk|tar\.(gz|xz)|AppImage|dmg)$' -and 
+                ($_.name -match '(windows|w64|win64|win|x64)' -and $_.name -match '\.(exe|msi|zip)$') -and
+                $_.name -notmatch '(arm|386|i686|linux|macos|mac|darwin)'
             }
 
             # Step 2: From the remaining Windows x64 assets, prefer GUI over CLI (exclude names with 'ctl', 'cli', or 'server')
