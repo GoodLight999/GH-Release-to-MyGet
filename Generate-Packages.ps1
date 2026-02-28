@@ -126,15 +126,28 @@ foreach ($rawurl in $urls) {
         Write-Host "Resolved Version: $version"
         Write-Host "Resolved Asset URL: $downloadUrl"
 
-        # 2. Download and calculate Checksum
-        $tempFilePath = Join-Path $env:TEMP $asset.name
-        Write-Host "Downloading to calculate checksum..."
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $tempFilePath
-        
-        $checksumStr = (Get-FileHash -Path $tempFilePath -Algorithm SHA256).Hash
-        Remove-Item -Path $tempFilePath -Force
-        
-        Write-Host "Calculated SHA256: $checksumStr"
+        # 2. Calculate SHA256 Checksum
+        # NEW: Check if the API provides the 'digest' natively so we can skip downloading massive files
+        $checksumStr = $null
+        if ($null -ne $asset.digest -and $asset.digest.StartsWith("sha256:")) {
+            $checksumStr = $asset.digest.Substring(7).ToUpper()
+            Write-Host "Extracted SHA256 checksum natively from GitHub API: $checksumStr"
+        } else {
+            Write-Host "No native digest found in API. Falling back to downloading $assetName to calculate hash..."
+            $tempFile = Join-Path $env:TEMP $assetName
+            try {
+                Invoke-WebRequest -Uri $downloadUrl -OutFile $tempFile
+                $hash = Get-FileHash -Path $tempFile -Algorithm SHA256
+                $checksumStr = $hash.Hash
+                Write-Host "Calculated Local Checksum ($fileType): $checksumStr"
+            } catch {
+                Write-Warning "Failed to download $downloadUrl for hashing."
+                if (Test-Path $tempFile) { Remove-Item $tempFile -Force }
+                continue
+            } finally {
+                if (Test-Path $tempFile) { Remove-Item $tempFile -Force }
+            }
+        }
 
         # 3. Generate .nuspec
         $nuspecContent = @"
