@@ -109,9 +109,9 @@ foreach ($rawurl in $urls) {
             # Step 1: Filter out things we definitely don't want (macOS, Linux, signatures, archives like tar.gz)
             $potentialAssets = @($release.assets | Where-Object { 
                 $_.name -notmatch '(?i)\.(sig|txt|json|asc|apk|tar\.(gz|xz)|AppImage|dmg|rpm|deb|blockmap|yml)$' -and 
-                # If it's a zip, exclude non-Windows architectures. If it's an exe/msi/msix, it's definitively Windows.
+                # If it's a zip/7z, exclude non-Windows architectures. If it's an exe/msi/msix, it's definitively Windows.
                 (($_.name -match '(?i)\.(exe|msi|msixbundle|appx)$') -or ($_.name -notmatch '(?i)(arm|aarch64|linux|macos|apple|darwin)')) -and
-                ($_.name -match '(?i)\.(exe|msi|zip|msixbundle|appx)$')
+                ($_.name -match '(?i)\.(exe|msi|zip|7z|msixbundle|appx)$')
             })
 
             # Step 2: Assign scores to prioritize the best candidate (64-bit Windows GUI Executable)
@@ -126,11 +126,11 @@ foreach ($rawurl in $urls) {
                 elseif ($_.name -match '(?i)(i386|i686|32bit|32-bit|x86(?!_64|-64))') { $score -= 10 } 
                 elseif ($_.name -match '(?i)(arm|aarch64)') { $score -= 20 }
                 
-                # Format: Prefer explicit setup/installer over zip. MS Store formats (msix) are the absolute cleanest and best.
+                # Format: Prefer explicit setup/installer over zip/7z. MS Store formats (msix) are the absolute cleanest and best.
                 if ($_.name -match '(?i)\.(msixbundle|appx)$') { $score += 30 }
                 elseif ($_.name -match '(?i)(setup|installer)') { $score += 5 }
                 elseif ($_.name -match '(?i)\.(exe|msi)$') { $score += 2 }
-                elseif ($_.name -match '(?i)\.exe\.zip$') { $score += 1 }
+                elseif ($_.name -match '(?i)\.exe\.(zip|7z)$') { $score += 1 }
                 
                 # Tool Type: Penalize CLI/Server
                 if ($_.name -match '(?i)(ctl|cli|server)') { $score -= 50 }
@@ -159,8 +159,8 @@ foreach ($rawurl in $urls) {
 
         $downloadUrl = $asset.browser_download_url
         $assetName = $asset.name
-        $isZip = $assetName.EndsWith(".zip")
-        $fileType = if ($isZip) { "zip" } else { $assetName.Split('.')[-1] }
+        $isArchive = $assetName -match '(?i)\.(zip|7z)$'
+        $fileType = if ($isArchive) { $matches[1].ToLower() } else { $assetName.Split('.')[-1] }
         
         Write-Host "Resolved Version: $version"
         Write-Host "Resolved Asset URL: $downloadUrl"
@@ -216,8 +216,8 @@ foreach ($rawurl in $urls) {
             $silentArgs = "/qn /norestart"
         }
 
-        if ($isZip) {
-            # ZIP Installation Semantics: This is a standalone app, not an installer.
+        if ($isArchive) {
+            # Archive Installation Semantics (ZIP/7Z): This is a standalone app, not an installer.
             # We should extract it to a persistent tools directory (C:\tools or similar) and create a Start Menu shortcut.
             $installScriptContent = @"
 `$ErrorActionPreference = 'Stop';
@@ -225,15 +225,20 @@ foreach ($rawurl in $urls) {
 
 # Chocolatey recommends putting standalone portable apps in `$env:ChocolateyToolsLocation` (usually C:\tools)
 `$installDir = Join-Path (Get-ToolsLocation) '$packageId'
+`$archivePath = Join-Path `$env:TEMP "$assetName"
 
 `$packageArgs = @{
-  packageName   = '$packageId'
-  unzipLocation = `$installDir
-  url           = '$downloadUrl'
-  checksum      = '$checksumStr'
-  checksumType  = 'sha256'
+  packageName  = '$packageId'
+  fileFullPath = `$archivePath
+  url          = '$downloadUrl'
+  checksum     = '$checksumStr'
+  checksumType = 'sha256'
 }
-Install-ChocolateyZipPackage @packageArgs
+Get-ChocolateyWebFile @packageArgs
+Get-ChocolateyUnzip -FileFullPath `$archivePath -Destination `$installDir
+
+# Cleanup the downloaded archive
+Remove-Item -Path `$archivePath -Force -ErrorAction SilentlyContinue
 
 # Advanced Edge Case Handling: Find the main GUI executable to create a shortcut and ignore CLI shims
 `$exes = Get-ChildItem -Path `$installDir -Recurse -Filter "*.exe"
