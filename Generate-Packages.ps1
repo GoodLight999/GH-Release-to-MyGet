@@ -164,11 +164,14 @@ foreach ($rawurl in $urls) {
         }
 
         if ($isZip) {
-            # If it's a ZIP file, Chocolatey should unzip it, typically using Install-ChocolateyZipPackage
+            # ZIP Installation Semantics: This is a standalone app, not an installer.
+            # We should extract it to a persistent tools directory (C:\tools or similar) and create a Start Menu shortcut.
             $installScriptContent = @"
 `$ErrorActionPreference = 'Stop';
 `$toolsDir   = "`$(Split-Path -parent `$MyInvocation.MyCommand.Definition)"
-`$installDir = "`$env:ChocolateyInstall\lib\$packageId\tools"
+
+# Chocolatey recommends putting standalone portable apps in `$env:ChocolateyToolsLocation` (usually C:\tools)
+`$installDir = Join-Path (Get-ToolsLocation) '$packageId'
 
 `$packageArgs = @{
   packageName   = '$packageId'
@@ -179,15 +182,33 @@ foreach ($rawurl in $urls) {
 }
 Install-ChocolateyZipPackage @packageArgs
 
-# Advanced Edge Case Handling: Multiple Executables in a ZIP (e.g., CLI tools we don't want shims for)
-# Chocolatey automatically creates shortcut shims for EVERY .exe in the folder.
-# To prevent CLI tools like 'syncthingtray-cli.exe' from cluttering the PATH when we just want the GUI:
-Get-ChildItem -Path `$installDir -Recurse -Filter "*.exe" | ForEach-Object {
-    if (`$_.Name -match "(ctl|cli|server)") {
-        # Create an .ignore file next to the exe so Chocolatey doesn't create a shim for it
-        New-Item -ItemType File -Path "`$(`$_.FullName).ignore" -Force | Out-Null
-        Write-Host "Created ignore file for CLI/background tool: `$(`$_.Name)"
+# Advanced Edge Case Handling: Find the main GUI executable to create a shortcut and ignore CLI shims
+`$exes = Get-ChildItem -Path `$installDir -Recurse -Filter "*.exe"
+
+`$mainExe = `$null
+foreach (`$exe in `$exes) {
+    if (`$exe.Name -match "(ctl|cli|server)") {
+        # It's a CLI tool or server component - tell Chocolatey NOT to create a path shim for it
+        New-Item -ItemType File -Path "`$(`$exe.FullName).ignore" -Force | Out-Null
+        Write-Host "Created ignore file for CLI/background tool: `$(`$exe.Name)"
+    } else {
+        # If we haven't found a main GUI exe yet, or if this one perfectly matches the repo name, prefer it
+        if (-not `$mainExe -or (`$exe.Name.ToLower() -match '$packageId')) {
+            `$mainExe = `$exe
+        }
     }
+}
+
+if (`$mainExe) {
+    # Generate a proper Windows Start Menu shortcut for the user to launch the app!
+    Write-Host "Setting up Start Menu shortcut for `$(`$mainExe.Name)"
+    `$shortcutArgs = @{
+        shortcutFilePath = Join-Path `$env:ProgramData "Microsoft\Windows\Start Menu\Programs\$repo.lnk"
+        targetPath       = `$mainExe.FullName
+        workingDirectory = `$mainExe.DirectoryName
+        description      = "Launch $repo"
+    }
+    Install-ChocolateyShortcut @shortcutArgs
 }
 "@
         } else {
