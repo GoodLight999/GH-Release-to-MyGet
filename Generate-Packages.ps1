@@ -128,6 +128,7 @@ foreach ($rawurl in $urls) {
                 # Format: Prefer explicit setup/installer over zip
                 if ($_.name -match '(?i)(setup|installer)') { $score += 5 }
                 elseif ($_.name -match '(?i)\.(exe|msi)$') { $score += 2 }
+                elseif ($_.name -match '(?i)\.exe\.zip$') { $score += 1 }
                 
                 # Tool Type: Penalize CLI/Server
                 if ($_.name -match '(?i)(ctl|cli|server)') { $score -= 50 }
