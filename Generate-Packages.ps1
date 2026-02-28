@@ -57,17 +57,32 @@ foreach ($rawurl in $urls) {
             New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
         }
 
-        # 1. Fetch latest release info to get Version and check if there's an executable
-        $apiUri = "https://api.github.com/repos/$owner/$repo/releases/latest"
+        # 1. Fetch latest release info
+        $apiUriLatest = "https://api.github.com/repos/$owner/$repo/releases/latest"
+        $apiUriAll = "https://api.github.com/repos/$owner/$repo/releases"
         
-        Write-Host "Fetching latest release from $apiUri ..."
+        Write-Host "Fetching release info for $owner/$repo ..."
+        $release = $null
         try {
-            # Use basic header for rate limits if token is implicitly available, 
-            # but public repos usually work fine without it for low volume.
-            $release = Invoke-RestMethod -Uri $apiUri
+            # Try to get the latest stable release first
+            $release = Invoke-RestMethod -Uri $apiUriLatest
+            Write-Host "Found stable release: $($release.tag_name)"
         } catch {
-            Write-Warning "Failed to fetch $apiUri. The repository might not have a release or is private."
-            continue
+            Write-Host "No stable release found. Checking for pre-releases..."
+            try {
+                # Fallback to fetching all releases (includes pre-releases) and taking the first one
+                $allReleases = Invoke-RestMethod -Uri $apiUriAll
+                if ($allReleases.Count -gt 0) {
+                    $release = $allReleases[0]
+                    Write-Host "Found pre-release: $($release.tag_name)"
+                } else {
+                    Write-Warning "Repository has no releases at all."
+                    continue
+                }
+            } catch {
+                Write-Warning "Failed to fetch releases from $apiUriAll."
+                continue
+            }
         }
 
         $version = $release.tag_name -replace '^v', ''
@@ -153,18 +168,27 @@ foreach ($rawurl in $urls) {
             $installScriptContent = @"
 `$ErrorActionPreference = 'Stop';
 `$toolsDir   = "`$(Split-Path -parent `$MyInvocation.MyCommand.Definition)"
+`$installDir = "`$env:ChocolateyInstall\lib\$packageId\tools"
 
 `$packageArgs = @{
   packageName   = '$packageId'
-  unzipLocation = "`$env:ChocolateyInstall\lib\$packageId\tools"
+  unzipLocation = `$installDir
   url           = '$downloadUrl'
   checksum      = '$checksumStr'
   checksumType  = 'sha256'
 }
 Install-ChocolateyZipPackage @packageArgs
 
-# Optional: Create a shim (shortcut) if there is an exe inside the zip.
-# It depends on the exact file structure inside the zip, but standard practice usually handles it if tools are placed correctly.
+# Advanced Edge Case Handling: Multiple Executables in a ZIP (e.g., CLI tools we don't want shims for)
+# Chocolatey automatically creates shortcut shims for EVERY .exe in the folder.
+# To prevent CLI tools like 'syncthingtray-cli.exe' from cluttering the PATH when we just want the GUI:
+Get-ChildItem -Path `$installDir -Recurse -Filter "*.exe" | ForEach-Object {
+    if (`$_.Name -match "(ctl|cli|server)") {
+        # Create an .ignore file next to the exe so Chocolatey doesn't create a shim for it
+        New-Item -ItemType File -Path "`$(`$_.FullName).ignore" -Force | Out-Null
+        Write-Host "Created ignore file for CLI/background tool: `$(`$_.Name)"
+    }
+}
 "@
         } else {
             # Standard executable/msi installer
