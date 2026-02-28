@@ -121,12 +121,13 @@ foreach ($rawurl in $urls) {
                 # OS: Definitively Windows
                 if ($_.name -match '(?i)(win|windows|w64|win64|-pc-)') { $score += 20 }
                 
-                # Architecture: Prefer 64-bit heavily
+                # Architecture: Prefer 64-bit heavily, penalize 32-bit and ARM if standard x64 is available
                 if ($_.name -match '(?i)(amd64|x86_64|x86-64|x64|win64|w64|64bit|64-bit)') { $score += 15 }
-                elseif ($_.name -match '(?i)(i386|i686|32bit|32-bit|x86(?!_64|-64))') { $score -= 10 } # Penalize 32-bit heavily if 64-bit available
+                elseif ($_.name -match '(?i)(i386|i686|32bit|32-bit|x86(?!_64|-64))') { $score -= 10 } 
+                elseif ($_.name -match '(?i)(arm|aarch64)') { $score -= 20 }
                 
-                # Format: Prefer explicit setup/installer over zip. MS Store formats (msix) are the cleanest.
-                if ($_.name -match '(?i)\.(msixbundle|appx)$') { $score += 6 }
+                # Format: Prefer explicit setup/installer over zip. MS Store formats (msix) are the absolute cleanest and best.
+                if ($_.name -match '(?i)\.(msixbundle|appx)$') { $score += 30 }
                 elseif ($_.name -match '(?i)(setup|installer)') { $score += 5 }
                 elseif ($_.name -match '(?i)\.(exe|msi)$') { $score += 2 }
                 elseif ($_.name -match '(?i)\.exe\.zip$') { $score += 1 }
