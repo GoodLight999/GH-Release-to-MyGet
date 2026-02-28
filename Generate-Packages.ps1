@@ -99,7 +99,7 @@ foreach ($rawurl in $urls) {
             
             # Step 1: Filter out things we definitely don't want (like .sig, .txt, linux, macos, arm, 386)
             $potentialAssets = $release.assets | Where-Object { 
-                $_.name -notmatch '\.(sig|txt|json|asc|apk|tar\.(gz|xz)|AppImage|dmg)$' -and 
+                $_.name -notmatch '\.(sig|txt|json|asc|apk|tar\.(gz|xz)|AppImage|dmg|rpm|deb|blockmap|yml)$' -and 
                 ($_.name -match '(windows|w64|win64|win|x64)' -and $_.name -match '\.(exe|msi|zip)$') -and
                 $_.name -notmatch '(arm|386|i686|linux|macos|mac|darwin)'
             }
@@ -141,7 +141,7 @@ foreach ($rawurl in $urls) {
                 $checksumStr = $hash.Hash
                 Write-Host "Calculated Local Checksum ($fileType): $checksumStr"
             } catch {
-                Write-Warning "Failed to download $downloadUrl for hashing."
+                Write-Warning "Failed to download $downloadUrl for hashing. $_"
                 if (Test-Path $tempFile) { Remove-Item $tempFile -Force }
                 continue
             } finally {
