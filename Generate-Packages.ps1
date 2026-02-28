@@ -23,6 +23,12 @@ if (-not (Test-Path $baseDir)) {
 
 foreach ($rawurl in $urls) {
     try {
+        $asset = $null
+        $downloadUrl = $null
+        $checksumStr = $null
+        $version = $null
+        $packageId = $null
+        
         # Check if URL has query parameters for advanced configuration (e.g. ?asset=*x86_64-w64-mingw32.exe.zip)
         $url = $rawurl
         $hasCustomAsset = $rawurl -match "\?asset=(.+)$"
@@ -113,8 +119,8 @@ foreach ($rawurl in $urls) {
             # Step 1: Filter out things we definitely don't want
             $potentialAssets = $release.assets | Where-Object { 
                 $_.name -notmatch '(?i)\.(sig|txt|json|asc|apk|tar\.(gz|xz)|AppImage|dmg|rpm|deb|blockmap|yml)$' -and 
-                $_.name -notmatch '(?i)(arm|aarch64|386|i686|linux|macos|apple|darwin)' -and
-                $_.name -notmatch '(?i)(-mac(-|\.))' -and
+                # If it's a zip, be careful about macOS. But if it's an exe/msi, it's definitively Windows.
+                (($_.name -match '(?i)\.(exe|msi)$') -or ($_.name -notmatch '(?i)(arm|aarch64|linux|macos|apple|darwin)')) -and
                 (
                     ($_.name -match '(?i)(windows|w64|win64|win|x64|-pc-)' -and $_.name -match '(?i)\.(exe|msi|zip)$')
                 )
@@ -128,9 +134,7 @@ foreach ($rawurl in $urls) {
             if (-not $asset) {
                 Write-Host "No explicit 'windows' assets found. Falling back to picking ANY bare .exe/.msi..."
                 $asset = $release.assets | Where-Object { 
-                    $_.name -match '(?i)\.(exe|msi)$' -and 
-                    $_.name -notmatch '(?i)(arm|aarch64|386|i686|linux|macos|apple|darwin|rpm|deb|AppImage)' -and
-                    $_.name -notmatch '(?i)(-mac(-|\.))'
+                    $_.name -match '(?i)\.(exe|msi)$' 
                 } | Select-Object -First 1
             }
         }
