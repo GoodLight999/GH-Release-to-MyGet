@@ -21,8 +21,20 @@ if (-not (Test-Path $baseDir)) {
     New-Item -ItemType Directory -Path $baseDir | Out-Null
 }
 
-foreach ($url in $urls) {
+foreach ($rawurl in $urls) {
     try {
+        # Check if URL has query parameters for advanced configuration (e.g. ?asset=*x86_64-w64-mingw32.exe.zip)
+        $assetRegex = '\.(exe|msi|zip)$' # Default fallback
+        $url = $rawurl
+        
+        if ($rawurl -match "\?asset=(.+)$") {
+            # Convert user-friendly glob like "syncthingtray-*-x86_64-w64-mingw32.exe.zip" to regex
+            $assetGlob = $matches[1]
+            # Naive glob to regex
+            $assetRegex = "^" + [Regex]::Escape($assetGlob).Replace("\*", ".*").Replace("\?", ".") + "$"
+            $url = $rawurl -replace "\?.*$", ""
+        }
+
         # Parse GitHub URL (e.g., https://github.com/jlcodes99/cockpit-tools)
         if ($url -notmatch "github\.com/([^/]+)/([^/]+)") {
             Write-Warning "Skipping invalid GitHub URL: $url"
@@ -64,16 +76,18 @@ foreach ($url in $urls) {
             continue
         }
 
-        # Find a suitable installer asset (.exe or .msi)
-        $asset = $release.assets | Where-Object { $_.name -match '\.(exe|msi)$' } | Select-Object -First 1
+        # Find a suitable installer asset based on the regex
+        $asset = $release.assets | Where-Object { $_.name -match $assetRegex } | Select-Object -First 1
         
         if (-not $asset) {
-            Write-Warning "No .exe or .msi asset found in the latest release ($version)."
+            Write-Warning "No asset matching '$assetRegex' found in the latest release ($version)."
             continue
         }
 
         $downloadUrl = $asset.browser_download_url
-        $fileType = $asset.name.Split('.')[-1]
+        $assetName = $asset.name
+        $isZip = $assetName.EndsWith(".zip")
+        $fileType = if ($isZip) { "zip" } else { $assetName.Split('.')[-1] }
         
         Write-Host "Resolved Version: $version"
         Write-Host "Resolved Asset URL: $downloadUrl"
@@ -111,13 +125,32 @@ foreach ($url in $urls) {
         Set-Content -Path $nuspecPath -Value $nuspecContent -Encoding UTF8
 
         # 4. Generate chocolateyInstall.ps1
-        # Guess silent args based on extension. This is a best effort.
         $silentArgs = "/S"
         if ($fileType -eq "msi") {
             $silentArgs = "/qn /norestart"
         }
 
-        $installScriptContent = @"
+        if ($isZip) {
+            # If it's a ZIP file, Chocolatey should unzip it, typically using Install-ChocolateyZipPackage
+            $installScriptContent = @"
+`$ErrorActionPreference = 'Stop';
+`$toolsDir   = "`$(Split-Path -parent `$MyInvocation.MyCommand.Definition)"
+
+`$packageArgs = @{
+  packageName   = '$packageId'
+  unzipLocation = "`$env:ChocolateyInstall\lib\$packageId\tools"
+  url           = '$downloadUrl'
+  checksum      = '$checksumStr'
+  checksumType  = 'sha256'
+}
+Install-ChocolateyZipPackage @packageArgs
+
+# Optional: Create a shim (shortcut) if there is an exe inside the zip.
+# It depends on the exact file structure inside the zip, but standard practice usually handles it if tools are placed correctly.
+"@
+        } else {
+            # Standard executable/msi installer
+            $installScriptContent = @"
 `$ErrorActionPreference = 'Stop';
 `$toolsDir   = "`$(Split-Path -parent `$MyInvocation.MyCommand.Definition)"
 
@@ -135,6 +168,7 @@ foreach ($url in $urls) {
 
 Install-ChocolateyPackage @packageArgs
 "@
+        }
         $installScriptPath = Join-Path $toolsDir "chocolateyInstall.ps1"
         Set-Content -Path $installScriptPath -Value $installScriptContent -Encoding UTF8
 
