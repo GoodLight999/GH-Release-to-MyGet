@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Do not remove this test for UTF-8: if “Ω” doesn’t appear as greek uppercase omega letter enclosed in quotation marks, you should use an editor that supports UTF-8, not this one. -->
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>my-awesome-app</id>
+    <version>1.0.0</version> <!-- Version will be automatically updated by update.ps1 -->
+    <title>My Awesome App</title>
+    <authors>Original Developer</authors>
+    <owners>Your Name</owners>
+    <projectUrl>https://github.com/example/my-awesome-app</projectUrl>
+    <tags>my-awesome-app gui tool admin</tags>
+    <summary>A sample GUI application</summary>
+    <description>This is a description of My Awesome App. It gets automatically updated from GitHub Releases.</description>
+    <releaseNotes>https://github.com/example/my-awesome-app/releases/latest</releaseNotes>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>
