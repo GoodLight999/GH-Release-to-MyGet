@@ -109,9 +109,9 @@ foreach ($rawurl in $urls) {
             # Step 1: Filter out things we definitely don't want (macOS, Linux, signatures, archives like tar.gz)
             $potentialAssets = $release.assets | Where-Object { 
                 $_.name -notmatch '(?i)\.(sig|txt|json|asc|apk|tar\.(gz|xz)|AppImage|dmg|rpm|deb|blockmap|yml)$' -and 
-                # If it's a zip, exclude non-Windows architectures. If it's an exe/msi, it's definitively Windows.
-                (($_.name -match '(?i)\.(exe|msi)$') -or ($_.name -notmatch '(?i)(arm|aarch64|linux|macos|apple|darwin)')) -and
-                ($_.name -match '(?i)\.(exe|msi|zip)$')
+                # If it's a zip, exclude non-Windows architectures. If it's an exe/msi/msix, it's definitively Windows.
+                (($_.name -match '(?i)\.(exe|msi|msixbundle|appx)$') -or ($_.name -notmatch '(?i)(arm|aarch64|linux|macos|apple|darwin)')) -and
+                ($_.name -match '(?i)\.(exe|msi|zip|msixbundle|appx)$')
             }
 
             # Step 2: Assign scores to prioritize the best candidate (64-bit Windows GUI Executable)
@@ -125,8 +125,9 @@ foreach ($rawurl in $urls) {
                 if ($_.name -match '(?i)(amd64|x86_64|x86-64|x64|win64|w64|64bit|64-bit)') { $score += 15 }
                 elseif ($_.name -match '(?i)(i386|i686|32bit|32-bit|x86(?!_64|-64))') { $score -= 10 } # Penalize 32-bit heavily if 64-bit available
                 
-                # Format: Prefer explicit setup/installer over zip
-                if ($_.name -match '(?i)(setup|installer)') { $score += 5 }
+                # Format: Prefer explicit setup/installer over zip. MS Store formats (msix) are the cleanest.
+                if ($_.name -match '(?i)\.(msixbundle|appx)$') { $score += 6 }
+                elseif ($_.name -match '(?i)(setup|installer)') { $score += 5 }
                 elseif ($_.name -match '(?i)\.(exe|msi)$') { $score += 2 }
                 elseif ($_.name -match '(?i)\.exe\.zip$') { $score += 1 }
                 
@@ -274,6 +275,17 @@ if (`$mainExe) {
     }
     Install-ChocolateyShortcut @shortcutArgs
 }
+"@
+        } elseif ($fileType -in @("msixbundle", "appx")) {
+            # Modern Windows App Package Installation
+            $installScriptContent = @"
+`$ErrorActionPreference = 'Stop';
+`$toolsDir   = "`$(Split-Path -parent `$MyInvocation.MyCommand.Definition)"
+`$installerPath = Join-Path `$toolsDir "$assetName"
+
+Invoke-WebRequest -Uri '$downloadUrl' -OutFile `$installerPath
+Add-AppxPackage -Path `$installerPath
+Remove-Item -Path `$installerPath -Force
 "@
         } else {
             # Standard executable/msi installer
