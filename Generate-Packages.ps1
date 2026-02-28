@@ -113,7 +113,8 @@ foreach ($rawurl in $urls) {
             # Step 1: Filter out things we definitely don't want
             $potentialAssets = $release.assets | Where-Object { 
                 $_.name -notmatch '(?i)\.(sig|txt|json|asc|apk|tar\.(gz|xz)|AppImage|dmg|rpm|deb|blockmap|yml)$' -and 
-                $_.name -notmatch '(?i)(arm|aarch64|386|i686|linux|macos|mac|apple|darwin)' -and
+                $_.name -notmatch '(?i)(arm|aarch64|386|i686|linux|macos|apple|darwin)' -and
+                $_.name -notmatch '(?i)(-mac(-|\.))' -and
                 (
                     ($_.name -match '(?i)(windows|w64|win64|win|x64|-pc-)' -and $_.name -match '(?i)\.(exe|msi|zip)$')
                 )
@@ -128,7 +129,8 @@ foreach ($rawurl in $urls) {
                 Write-Host "No explicit 'windows' assets found. Falling back to picking ANY bare .exe/.msi..."
                 $asset = $release.assets | Where-Object { 
                     $_.name -match '(?i)\.(exe|msi)$' -and 
-                    $_.name -notmatch '(?i)(arm|aarch64|386|i686|linux|macos|mac|apple|darwin|rpm|deb|AppImage)' 
+                    $_.name -notmatch '(?i)(arm|aarch64|386|i686|linux|macos|apple|darwin|rpm|deb|AppImage)' -and
+                    $_.name -notmatch '(?i)(-mac(-|\.))'
                 } | Select-Object -First 1
             }
         }
