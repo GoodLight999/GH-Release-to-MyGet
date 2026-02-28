@@ -266,15 +266,25 @@ if (-not `$mainExe -and `$guiCandidates.Count -gt 0) {
 }
 
 if (`$mainExe) {
-    # Generate a proper Windows Start Menu shortcut for the user to launch the app!
-    Write-Host "Setting up Start Menu shortcut for `$(`$mainExe.Name)"
-    `$shortcutArgs = @{
-        shortcutFilePath = Join-Path `$env:ProgramData "Microsoft\Windows\Start Menu\Programs\$repo.lnk"
-        targetPath       = `$mainExe.FullName
-        workingDirectory = `$mainExe.DirectoryName
-        description      = "Launch $repo"
+    if (`$mainExe.Name -match '(?i)(setup|install)') {
+        Write-Host "Detected an installer wrapped inside the ZIP: `$(`$mainExe.Name). Executing it silently..."
+        # It's an installer, run it silently
+        Start-Process -FilePath `$mainExe.FullName -ArgumentList '/S /qn /quiet /norestart' -Wait -NoNewWindow
+        
+        # Clean up the extracted installer directory since it's no longer needed
+        cd `$env:TEMP
+        Remove-Item -Path `$installDir -Recurse -Force -ErrorAction SilentlyContinue
+    } else {
+        # Generate a proper Windows Start Menu shortcut for the user to launch the app!
+        Write-Host "Setting up Start Menu shortcut for portable app `$(`$mainExe.Name)"
+        `$shortcutArgs = @{
+            shortcutFilePath = Join-Path `$env:ProgramData "Microsoft\Windows\Start Menu\Programs\$repo.lnk"
+            targetPath       = `$mainExe.FullName
+            workingDirectory = `$mainExe.DirectoryName
+            description      = "Launch $repo"
+        }
+        Install-ChocolateyShortcut @shortcutArgs
     }
-    Install-ChocolateyShortcut @shortcutArgs
 }
 "@
         } elseif ($fileType -in @("msixbundle", "appx")) {
