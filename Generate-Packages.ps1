@@ -24,15 +24,18 @@ if (-not (Test-Path $baseDir)) {
 foreach ($rawurl in $urls) {
     try {
         # Check if URL has query parameters for advanced configuration (e.g. ?asset=*x86_64-w64-mingw32.exe.zip)
-        $assetRegex = '\.(exe|msi|zip)$' # Default fallback
         $url = $rawurl
+        $hasCustomAsset = $rawurl -match "\?asset=(.+)$"
         
-        if ($rawurl -match "\?asset=(.+)$") {
+        if ($hasCustomAsset) {
             # Convert user-friendly glob like "syncthingtray-*-x86_64-w64-mingw32.exe.zip" to regex
             $assetGlob = $matches[1]
-            # Naive glob to regex
             $assetRegex = "^" + [Regex]::Escape($assetGlob).Replace("\*", ".*").Replace("\?", ".") + "$"
             $url = $rawurl -replace "\?.*$", ""
+        } else {
+            # Default safer fallback for installers: prefer .exe or .msi matching 'win' if possible, otherwise any .exe or .msi.
+            # We explicitly don't wildly match .zip here to prevent grabbing macOS/Linux zips. ZIPs are handled in the Smart Fallback below.
+            $assetRegex = '(?i).*(win|setup).*\.(exe|msi)$'
         }
 
         # Parse GitHub URL (e.g., https://github.com/jlcodes99/cockpit-tools)
@@ -91,25 +94,42 @@ foreach ($rawurl in $urls) {
             continue
         }
         # Find a suitable installer asset based on the regex
-        $asset = $release.assets | Where-Object { $_.name -match $assetRegex } | Select-Object -First 1
+        $asset = $null
+        if ($hasCustomAsset) {
+            $asset = $release.assets | Where-Object { $_.name -match $assetRegex } | Select-Object -First 1
+        } else {
+            # Try to find an explicit windows setup/exe installer
+            $asset = $release.assets | Where-Object { $_.name -match $assetRegex } | Select-Object -First 1
+            if (-not $asset) {
+                # Just grab any exe/msi if no specific 'win' one exists
+                $asset = $release.assets | Where-Object { $_.name -match '\.(exe|msi)$' -and $_.name -notmatch '(mac|rpm|deb)' } | Select-Object -First 1
+            }
+        }
         
-        # Smart Auto-Detection Fallback: If no generic .exe/.msi/.zip was found and the user didn't specify a strict ?asset= glob
-        if (-not $asset -and (-not $rawurl.Contains("?asset="))) {
-            Write-Host "Generic asset match failed. Attempting smart Windows 64-bit GUI auto-detection..."
+        # Smart Auto-Detection Fallback: If no generic .exe/.msi was found, fall back to complex matching (e.g. portable ZIPs)
+        if (-not $asset -and (-not $hasCustomAsset)) {
+            Write-Host "Generic executable match failed. Attempting smart Windows 64-bit GUI auto-detection (ZIPs/etc)..."
             
-            # Step 1: Filter out things we definitely don't want (like .sig, .txt, linux, macos, arm, 386)
+            # Step 1: Filter out things we definitely don't want
             $potentialAssets = $release.assets | Where-Object { 
-                $_.name -notmatch '\.(sig|txt|json|asc|apk|tar\.(gz|xz)|AppImage|dmg|rpm|deb|blockmap|yml)$' -and 
-                ($_.name -match '(windows|w64|win64|win|x64)' -and $_.name -match '\.(exe|msi|zip)$') -and
-                $_.name -notmatch '(arm|386|i686|linux|macos|mac|darwin)'
+                $_.name -notmatch '(?i)\.(sig|txt|json|asc|apk|tar\.(gz|xz)|AppImage|dmg|rpm|deb|blockmap|yml)$' -and 
+                $_.name -notmatch '(?i)(arm|aarch64|386|i686|linux|macos|mac|apple|darwin)' -and
+                (
+                    ($_.name -match '(?i)(windows|w64|win64|win|x64|-pc-)' -and $_.name -match '(?i)\.(exe|msi|zip)$')
+                )
             }
 
-            # Step 2: From the remaining Windows x64 assets, prefer GUI over CLI (exclude names with 'ctl', 'cli', or 'server')
-            $asset = $potentialAssets | Where-Object { $_.name -notmatch '(ctl|cli|server)' } | Select-Object -First 1
+            # Step 2: Prefer GUI over CLI
+            $asset = $potentialAssets | Where-Object { $_.name -notmatch '(?i)(ctl|cli|server)' } | Select-Object -First 1
+            if (-not $asset) { $asset = $potentialAssets | Select-Object -First 1 }
             
-            # Step 3: If still nothing, just grab whatever windows x64 asset we found first
+            # Step 3: Absolute Last Resort (e.g. MacTypeInstaller_2025.6.9.exe doesn't say "windows" or "x64")
             if (-not $asset) {
-                $asset = $potentialAssets | Select-Object -First 1
+                Write-Host "No explicit 'windows' assets found. Falling back to picking ANY bare .exe/.msi..."
+                $asset = $release.assets | Where-Object { 
+                    $_.name -match '(?i)\.(exe|msi)$' -and 
+                    $_.name -notmatch '(?i)(arm|aarch64|386|i686|linux|macos|mac|apple|darwin|rpm|deb|AppImage)' 
+                } | Select-Object -First 1
             }
         }
         
