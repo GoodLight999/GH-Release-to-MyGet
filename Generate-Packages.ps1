@@ -104,38 +104,48 @@ foreach ($rawurl in $urls) {
         if ($hasCustomAsset) {
             $asset = $release.assets | Where-Object { $_.name -match $assetRegex } | Select-Object -First 1
         } else {
-            # Try to find an explicit windows setup/exe installer
-            $asset = $release.assets | Where-Object { $_.name -match $assetRegex } | Select-Object -First 1
-            if (-not $asset) {
-                # Just grab any exe/msi if no specific 'win' one exists
-                $asset = $release.assets | Where-Object { $_.name -match '\.(exe|msi)$' -and $_.name -notmatch '(mac|rpm|deb)' } | Select-Object -First 1
-            }
-        }
-        
-        # Smart Auto-Detection Fallback: If no generic .exe/.msi was found, fall back to complex matching (e.g. portable ZIPs)
-        if (-not $asset -and (-not $hasCustomAsset)) {
-            Write-Host "Generic executable match failed. Attempting smart Windows 64-bit GUI auto-detection (ZIPs/etc)..."
+            Write-Host "Attempting smart Windows GUI auto-detection (prioritizing x64 over x86, GUI over CLI)..."
             
-            # Step 1: Filter out things we definitely don't want
+            # Step 1: Filter out things we definitely don't want (macOS, Linux, signatures, archives like tar.gz)
             $potentialAssets = $release.assets | Where-Object { 
                 $_.name -notmatch '(?i)\.(sig|txt|json|asc|apk|tar\.(gz|xz)|AppImage|dmg|rpm|deb|blockmap|yml)$' -and 
-                # If it's a zip, be careful about macOS. But if it's an exe/msi, it's definitively Windows.
+                # If it's a zip, exclude non-Windows architectures. If it's an exe/msi, it's definitively Windows.
                 (($_.name -match '(?i)\.(exe|msi)$') -or ($_.name -notmatch '(?i)(arm|aarch64|linux|macos|apple|darwin)')) -and
-                (
-                    ($_.name -match '(?i)(windows|w64|win64|win|x64|-pc-)' -and $_.name -match '(?i)\.(exe|msi|zip)$')
-                )
+                ($_.name -match '(?i)\.(exe|msi|zip)$')
             }
 
-            # Step 2: Prefer GUI over CLI
-            $asset = $potentialAssets | Where-Object { $_.name -notmatch '(?i)(ctl|cli|server)' } | Select-Object -First 1
-            if (-not $asset) { $asset = $potentialAssets | Select-Object -First 1 }
+            # Step 2: Assign scores to prioritize the best candidate (64-bit Windows GUI Executable)
+            $scoredAssets = $potentialAssets | ForEach-Object {
+                $score = 0
+                
+                # OS: Definitively Windows
+                if ($_.name -match '(?i)(win|windows|w64|win64|-pc-)') { $score += 20 }
+                
+                # Architecture: Prefer 64-bit heavily
+                if ($_.name -match '(?i)(amd64|x86_64|x86-64|x64|win64|w64|64bit|64-bit)') { $score += 15 }
+                elseif ($_.name -match '(?i)(i386|i686|32bit|32-bit|x86(?!_64|-64))') { $score -= 10 } # Penalize 32-bit heavily if 64-bit available
+                
+                # Format: Prefer explicit setup/installer over zip
+                if ($_.name -match '(?i)(setup|installer)') { $score += 5 }
+                elseif ($_.name -match '(?i)\.(exe|msi)$') { $score += 2 }
+                
+                # Tool Type: Penalize CLI/Server
+                if ($_.name -match '(?i)(ctl|cli|server)') { $score -= 50 }
+                
+                [PSCustomObject]@{
+                    Asset = $_
+                    Score = $score
+                    Name = $_.name
+                }
+            }
             
-            # Step 3: Absolute Last Resort (e.g. MacTypeInstaller_2025.6.9.exe doesn't say "windows" or "x64")
-            if (-not $asset) {
-                Write-Host "No explicit 'windows' assets found. Falling back to picking ANY bare .exe/.msi..."
-                $asset = $release.assets | Where-Object { 
-                    $_.name -match '(?i)\.(exe|msi)$' 
-                } | Select-Object -First 1
+            # Sort by score descending
+            $sortedAssets = $scoredAssets | Sort-Object -Property Score -Descending
+            
+            if ($sortedAssets -and $sortedAssets.Count -gt 0) {
+                # Optional: Uncomment to debug scoring
+                # foreach ($sa in $sortedAssets) { Write-Host "Candidate: $($sa.Name) (Score: $($sa.Score))" }
+                $asset = $sortedAssets[0].Asset
             }
         }
         
