@@ -29,7 +29,10 @@ jobs:
           }
         shell: powershell
 
-      - name: Keep workflow alive
-        uses: gautamkrishnar/keepalive-workflow@v2
-        with:
-          commit_message: "chore: Auto keepalive to prevent 60-day cron deactivation"
+      - name: Keep workflow alive natively
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "chore: Auto keepalive to prevent 60-day cron deactivation"
+          git push
+        shell: bash
